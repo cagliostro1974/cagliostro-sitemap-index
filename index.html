@@ -1,85 +1,136 @@
-<!DOCTYPE html>
-<html lang="it">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Indice Articoli - Autoaggiornante</title>
-    <style>
-        /* Stili minimali per la lista */
-        body { font-family: sans-serif; padding: 20px; }
-        ul { list-style: none; padding: 0; }
-        li { margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
-        a { text-decoration: none; color: #1a73e8; font-weight: bold; }
-        span.date { color: #5f6368; font-size: 0.85em; margin-left: 10px; }
-        .loading-message { font-style: italic; color: gray; }
-    </style>
-</head>
-<body>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const BLOG_URL = 'https://loroscopodicagliostro.blogspot.com/';
+        const POSTS_SITEMAP_URL = 'https://corsproxy.io/?url=' + encodeURIComponent(BLOG_URL + 'sitemap.xml'); 
+        const container = document.getElementById('sitemap-index');
+        let allItems = [];
 
-    <h1>Indice Completo degli Articoli</h1>
-    <div id="sitemap-index" class="loading-message">
-        Caricamento indice in corso...
-    </div>
+        // Funzione helper per estrarre il titolo dallo slug URL
+        function getTitleFromUrl(loc) {
+            let urlParts = loc.split('/');
+            let slug = urlParts[urlParts.length - 1].replace('.html', '');
+            if (loc.includes('/p/')) {
+                // Per le pagine statiche, rimuoviamo '/p/' e usiamo il titolo dello slug
+                slug = urlParts[urlParts.length - 2];
+            }
+            return slug.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        }
 
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // ** Modifica qui l'URL del tuo sitemap **
-            // MODIFICA: Aggiunto l'URL del proxy per risolvere il problema CORS
-            const sitemapUrl = 'https://corsproxy.io/?url=' + encodeURIComponent('https://loroscopodicagliostro.blogspot.com/sitemap.xml');
-            
-            const container = document.getElementById('sitemap-index');
-
-            fetch(sitemapUrl)
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`Errore HTTP: ${response.status}`);
-                    }
-                    return response.text();
-                })
+        // 1. Processa il Sitemap dei Post (Utilizza il Master Sitemap se lo hai creato)
+        function processPosts() {
+             // Utilizziamo il sitemap principale per recuperare tutti i sitemap secondari (post)
+             return fetch(POSTS_SITEMAP_URL)
+                .then(response => response.text())
                 .then(str => (new window.DOMParser()).parseFromString(str, "text/xml"))
                 .then(data => {
-                    const urls = data.getElementsByTagName('url');
-                    let items = [];
+                    const sitemapLocs = data.getElementsByTagName('loc');
+                    const promises = [];
 
-                    for (let url of urls) {
-                        const locElement = url.getElementsByTagName('loc')[0];
-                        const lastModElement = url.getElementsByTagName('lastmod')[0];
-                        
-                        // Assicurati che esista almeno l'URL
-                        if (!locElement) continue;
+                    for (let loc of sitemapLocs) {
+                        if (loc.textContent.includes('-posts-')) {
+                            // Fetch dei sitemap specifici per i post
+                            promises.push(
+                                fetch('https://corsproxy.io/?url=' + encodeURIComponent(loc.textContent))
+                                    .then(res => res.text())
+                                    .then(postXmlStr => (new window.DOMParser()).parseFromString(postXmlStr, "text/xml"))
+                                    .then(postData => {
+                                        const urls = postData.getElementsByTagName('url');
+                                        for (let url of urls) {
+                                            const locElement = url.getElementsByTagName('loc')[0];
+                                            const lastModElement = url.getElementsByTagName('lastmod')[0];
+                                            if (!locElement) continue;
 
-                        const loc = locElement.textContent;
-                        const lastMod = lastModElement ? new Date(lastModElement.textContent) : null;
+                                            const loc = locElement.textContent;
+                                            const lastMod = lastModElement ? new Date(lastModElement.textContent) : new Date(0);
 
-                        // Estrazione del titolo dallo slug URL (parte finale)
-                        let urlParts = loc.split('/');
-                        let slug = urlParts[urlParts.length - 1].replace('.html', '');
-                        
-                        // Trasforma lo slug (es. "dal-micro-al-macro") in un titolo leggibile
-                        let title = slug.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-
-                        items.push({ loc, title, lastMod });
+                                            allItems.push({ 
+                                                loc, 
+                                                title: getTitleFromUrl(loc), 
+                                                lastMod,
+                                                isStatic: false 
+                                            });
+                                        }
+                                    })
+                            );
+                        }
                     }
-
-                    // Ordina gli articoli per data di pubblicazione (dal più recente al più vecchio)
-                    items.sort((a, b) => b.lastMod - a.lastMod);
-
-                    // Genera l'HTML
-                    let html = '<ul>';
-                    items.forEach(item => {
-                        const dateStr = item.lastMod ? item.lastMod.toLocaleDateString('it-IT') : '';
-                        html += `<li><a href="${item.loc}">${item.title}</a> <span class="date">(${dateStr})</span></li>`;
-                    });
-                    html += '</ul>';
-
-                    container.classList.remove('loading-message');
-                    container.innerHTML = html;
-                })
-                .catch(error => {
-                    container.innerHTML = '⚠️ Impossibile caricare il sitemap. Verifica l\'URL o le impostazioni di CORS.';
-                    console.error('Errore durante il fetch del sitemap:', error);
+                    return Promise.all(promises);
                 });
+        }
+        
+        // 2. Processa le Pagine Statiche dal Menu di Navigazione (Nav-bar)
+        function processStaticPages() {
+            // Usiamo il proxy per caricare l'HTML della pagina principale
+            const blogFetchUrl = 'https://corsproxy.io/?url=' + encodeURIComponent(BLOG_URL);
+
+            return fetch(blogFetchUrl)
+                .then(response => response.text())
+                .then(htmlStr => {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(htmlStr, 'text/html');
+
+                    // Questa è la selezione chiave. Si assume che le pagine statiche siano in un widget "PageList"
+                    // Su Blogger, questo è spesso identificato dal selettore css .PageList o .page-list. 
+                    // Se non funziona, dovrai ispezionare il tuo tema per trovare il selettore corretto.
+                    const pageListLinks = doc.querySelectorAll('.PageList a, .page-list a, .PageList li a'); 
+                    
+                    pageListLinks.forEach(a => {
+                        const loc = a.href;
+                        // Ignora i link che non sono chiaramente pagine statiche del blog
+                        if (loc.includes('/p/')) { 
+                            // Non abbiamo la data, usiamo la data corrente per metterle in cima all'indice
+                            const currentDate = new Date(); 
+                            
+                            // Evita duplicati se per qualche ragione la sitemap-pages li include
+                            if (!allItems.some(item => item.loc === loc)) {
+                                allItems.push({
+                                    loc: loc,
+                                    title: a.textContent.trim(), // Usiamo il titolo esatto del link nel menu
+                                    lastMod: currentDate,
+                                    isStatic: true
+                                });
+                            }
+                        }
+                    });
+                });
+        }
+
+        // 3. Esecuzione e Ordinamento Finale
+        container.innerHTML = 'Caricamento indice in corso...';
+        
+        // Esegue entrambe le chiamate in parallelo
+        Promise.all([
+            processPosts(),
+            processStaticPages()
+        ])
+        .then(() => {
+            // Ordina tutti gli elementi per data di pubblicazione/ultima modifica (dal più recente al più vecchio)
+            allItems.sort((a, b) => {
+                const dateA = a.lastMod instanceof Date ? a.lastMod.getTime() : 0;
+                const dateB = b.lastMod instanceof Date ? b.lastMod.getTime() : 0;
+                return dateB - dateA;
+            });
+
+            // Rimuove eventuali link duplicati (potrebbe succedere se una pagina è nella navbar E nel sitemap, o se è stata aggiunta manualmente)
+            const uniqueItems = Array.from(new Set(allItems.map(item => item.loc)))
+                .map(loc => allItems.find(item => item.loc === loc));
+
+            // Generazione dell'HTML
+            let html = '<ul>';
+            uniqueItems.forEach(item => {
+                const dateStr = item.lastMod && item.lastMod.toLocaleDateString('it-IT'); 
+                const tag = item.isStatic ? ` <span style="font-size:0.8em; color: purple;">[Pagina]</span>` : '';
+                
+                html += `<li><a href="${item.loc}">${item.title}</a>${tag} <span class="date">(${dateStr})</span></li>`;
+            });
+            html += '</ul>';
+
+            container.classList.remove('loading-message');
+            container.innerHTML = html;
+        })
+        .catch(error => {
+            container.innerHTML = '⚠️ Impossibile caricare l\'indice completo. Verifica i selettori CSS del menu Navbar.';
+            console.error('Errore fatale nel caricamento dell\'indice:', error);
         });
-    </script>
-</body>
-</html>
+    });
+</script>
