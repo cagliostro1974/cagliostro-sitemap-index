@@ -24,7 +24,8 @@
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             // ** Modifica qui l'URL del tuo sitemap **
-            const sitemapUrl = 'https://loroscopodicagliostro.blogspot.com/sitemap.xml'; 
+            // MODIFICA: Aggiunto l'URL del proxy per risolvere il problema CORS
+            const sitemapUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://loroscopodicagliostro.blogspot.com/sitemap.xml');
             const container = document.getElementById('sitemap-index');
 
             fetch(sitemapUrl)
